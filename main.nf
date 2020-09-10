@@ -102,6 +102,9 @@ query_format_miss1 = params.query_format_miss1
   Channel.fromPath(params.inputMichiganLDfile)
                         .ifEmpty { exit 1, "Input file with Michigan LD data not found at ${params.inputMichiganLDfile}. Is the file path correct?" }
                         .set { ch_inputMichiganLDfile }
+  Channel.fromPath(params.inputMichiganLDfileExclude)
+                        .ifEmpty { exit 1, "Input file with Michigan LD for excluding regions  not found at ${params.inputMichiganLDfile}. Is the file path correct?" }
+                        .set { ch_inputMichiganLDfileExclude }
 if (params.input.endsWith(".csv")) {
 
   Channel.fromPath(params.input)
@@ -204,7 +207,6 @@ process further_filtering {
     """
     bcftools view ${bcf_filtered} \
     -i 'INFO/OLD_MULTIALLELIC="." & INFO/OLD_CLUMPED="."' \
-    -T ${michiganld_exclude_regions_file} \
     -v snps  | \
     bcftools annotate \
     --set-id '%CHROM:%POS-%REF/%ALT-%INFO/OLD_CLUMPED-%INFO/OLD_MULTIALLELIC' | \
@@ -213,7 +215,7 @@ process further_filtering {
     -- -t MAF
     #Produce filtered txt file
     bcftools query MichiganLD_regionsFiltered_${region}.bcf \
-    -i 'MAF[0]>0.0' -f '%CHROM\t%POS\t%REF\t%ALT\t%MAF\n' | \
+    -i 'MAF[0]>0.01' -f '%CHROM\t%POS\t%REF\t%ALT\t%MAF\n' | \
     awk -F "\t" '{ if((\$3 == "G" && \$4 == "C") || (\$3 == "A" && \$4 == "T")) {next} { print \$0} }' \
     > MAF_filtered_1kp3intersect_${region}.txt
     """
@@ -249,7 +251,7 @@ process create_final_king_vcf {
     -H MichiganLD_regionsFiltered_${region}.bcf \
     -S ${agg_samples_txt} \
     --force-samples \
-    >> ${region}_filtered.vcf
+    | awk -F '\t' 'NR==FNR{c[\$1\$2\$3\$4]++;next}; c[\$1\$2\$4\$5] > 0' MAF_filtered_1kp3intersect_${region}.txt - >> ${region}_filtered.vcf
     bgzip ${region}_filtered.vcf
     tabix ${region}_filtered.vcf.gz
     """
@@ -294,7 +296,7 @@ process make_bed_all {
     set val(chr),file("chrom${chr}_merged_filtered.vcf.gz"),file("chrom${chr}_merged_filtered.vcf.gz.tbi") from ch_vcfs_per_chromosome
     
     output:
-    file "BED_*" into ch_make_bed_all into ch_make_bed_all
+    set val(chr),file("BED_${chr}.bed"),file("BED_${chr}.bim"),file("BED_${chr}.fam") into ch_make_bed_all
 
     script:
 
@@ -310,7 +312,64 @@ process make_bed_all {
     --out BED_${chr}
     """
 }
+/* STEP_23
+ * STEP - ld_bed: LD prune SNPs
+ */
 
+ process ld_bed {
+    publishDir "${params.outdir}/ld_bed/", mode: params.publish_dir_mode
+
+    input:
+    set val(chr),file("BED_${chr}.bed"),file("BED_${chr}.bim"),file("BED_${chr}.fam") from ch_make_bed_all
+    file(michiganld_exclude_regions_file) from ch_inputMichiganLDfileExclude
+    output:
+    file "BED_LDpruned_${chr}*" into ch_ld_bed
+
+    script:
+    """
+    #Not considering founders in this as all of our SNPs are common
+    plink  \
+    --exclude range ${michiganld_exclude_regions_file} \
+    --keep-allele-order \
+    --bfile BED_${chr} \
+    --indep-pairwise 500kb 1 0.1 \
+    --out BED_LD_${chr}
+    
+    #Now that we have our correct list of SNPs (prune.in), filter the original
+    #bed file to just these sites
+    plink \
+    --make-bed \
+    --bfile BED_${chr} \
+    --keep-allele-order \
+    --extract BED_LD_${chr}.prune.in \
+    --double-id \
+    --allow-extra-chr \
+    --out BED_LDpruned_${chr}
+    """
+}
+
+/* STEP_24
+ * STEP - merge_autosomes: Merge autosomes to genome wide BED files
+ */
+
+process merge_autosomes {
+    publishDir "${params.outdir}/merge_autosomes/", mode: params.publish_dir_mode
+
+    input:
+    file chr_ld_pruned_bed from ch_ld_bed.collect()
+
+    output:
+    file "autosomes_LD_pruned_1kgp3Intersect*" into ch_files_txt
+
+    script:
+    """
+    for i in {1..22}; do if [ -f "BED_LDpruned_\$i.bed" ]; then echo BED_LDpruned_\$i >> mergelist.txt; fi ;done
+    plink --merge-list mergelist.txt \
+    --make-bed \
+    --out autosomes_LD_pruned_1kgp3Intersect
+    rm mergelist.txt
+    """
+}
 def nfcoreHeader() {
     // Log colors ANSI codes
     c_black = params.monochrome_logs ? '' : "\033[0;30m";
