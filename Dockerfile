@@ -21,6 +21,7 @@ RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/strin
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/plyr/plyr_1.8.5.tar.gz', repos=NULL, type='source')"
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/reshape2/reshape2_1.4.3.tar.gz', repos=NULL, type='source')"
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/tidyr/tidyr_1.0.2.tar.gz', repos=NULL, type='source')"
+RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/BH/BH_1.72.0-2.tar.gz', repos=NULL, type='source')"
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/dplyr/dplyr_0.8.5.tar.gz', repos=NULL, type='source')"
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/data.table/data.table_1.12.8.tar.gz', repos=NULL, type='source')"
 
