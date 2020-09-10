@@ -102,6 +102,15 @@ query_format_miss1 = params.query_format_miss1
   Channel.fromPath(params.inputMichiganLDfile)
                         .ifEmpty { exit 1, "Input file with Michigan LD data not found at ${params.inputMichiganLDfile}. Is the file path correct?" }
                         .set { ch_inputMichiganLDfile }
+  Channel.fromPath(params.inputPCsancestryrelated)
+                        .ifEmpty { exit 1, "Input file with Michigan LD data not found at ${params.inputPCsancestryrelated}. Is the file path correct?" }
+                        .set { ch_inputPCsancestryrelated }
+
+  Channel.fromPath(params.inputAncestryAssignmentProbs)
+                        .ifEmpty { exit 1, "Input file with Michigan LD data not found at ${params.inputAncestryAssignmentProbs}. Is the file path correct?" }
+                        .set { ch_inputAncestryAssignmentProbs }
+                        
+                        
   Channel.fromPath(params.inputMichiganLDfileExclude)
                         .ifEmpty { exit 1, "Input file with Michigan LD for excluding regions  not found at ${params.inputMichiganLDfile}. Is the file path correct?" }
                         .set { ch_inputMichiganLDfileExclude }
@@ -359,7 +368,7 @@ process merge_autosomes {
     file chr_ld_pruned_bed from ch_ld_bed.collect()
 
     output:
-    file "autosomes_LD_pruned_1kgp3Intersect*" into ch_files_txt
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") into ch_merge_autosomes
 
     script:
     """
@@ -370,6 +379,75 @@ process merge_autosomes {
     rm mergelist.txt
     """
 }
+
+/* STEP_25
+ * STEP - hwe_pruning_30k_data: Produce a first pass HWE filter
+ * We use:
+ * The 195k SNPs from above
+ * The intersection bfiles (on all 80k)
+ * Then we make BED files of unrelated individuals for each superpop (using only unrelated samples from 30k)
+ * We do this using the inferred ancestries from the 30k
+ */
+
+// TODO: consider decoupling R scripts from plink scripts
+process hwe_pruning_30k_data {
+    publishDir "${params.outdir}/hwe_pruning_30k_data/", mode: params.publish_dir_mode
+
+    input:
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") from ch_merge_autosomes
+    file (ancestry_assignment_probs) from ch_inputAncestryAssignmentProbs
+    file (pc_sancestry_related) from ch_inputPCsancestryrelated
+    output:
+    file "*_superpops_195ksnps" into ch_hwe_pruning_30k_data
+    //file "*.txt" into ch_hwe_pruning_30k_data
+    script:
+    """
+    R -e 'library(data.table); 
+    print("Hola0");
+    library(dplyr);
+    print("Hola1"); 
+    dat <- fread("${ancestry_assignment_probs}") %>% as_tibble();
+    print("Hola2");
+    unrels <- fread("${pc_sancestry_related}") %>% as_tibble() %>% filter(unrelated_set == 1);
+    dat <- dat %>% filter(plate_key %in% unrels\$plate_key);
+    for(col in c("AFR","EUR","SAS","EAS")){dat[dat[col]>0.8,c("plate_key",col)] %>% write.table(paste0(col,"pop.txt"), quote = F, row.names=F)}
+    '
+    
+    bedmain="autosomes_LD_pruned_1kgp3Intersect"
+    for pop in AFR EUR SAS EAS; do
+        echo \${pop}
+        awk '{print \$1"\t"\$1}' \${pop}pop.txt > \${pop}keep
+        plink \
+        --make-bed \
+        --bfile \${bedmain} \
+        --out \${pop} 
+        
+        plink --bfile \${pop} --hardy --out \${pop} --nonfounders
+    done
+
+    R -e 'library(data.table);
+    library(dplyr);
+    dat <- lapply(c("EUR.hwe","AFR.hwe", "SAS.hwe", "EAS.hwe"),fread);
+    names(dat) <- c("EUR.hwe","AFR.hwe", "SAS.hwe", "EAS.hwe");
+    dat <- dat %>% bind_rows(.id="id");
+    write.table(dat, "combinedHWE.txt", row.names = F, quote = F)
+    '
+    R -e 'library(dplyr); library(data.table);
+        dat <- fread("combinedHWE.txt") %>% as_tibble();
+        #Create set that is just SNPS that are >10e-6 in all pops
+        dat %>% filter(P >10e-6) %>% group_by(SNP) %>% count() %>% filter(n==4) %>% select(SNP) %>% distinct() %>%
+        write.table("hwe10e-6_superpops_195ksnps", row.names = F, quote = F)
+        '
+    R -e 'library(dplyr); library(data.table);
+        dat <- fread("combinedHWE.txt") %>% as_tibble();
+        #Create set that is just SNPS that are >10e-2 in all pops
+        dat %>% filter(P >10e-2) %>% group_by(SNP) %>% count() %>% filter(n==4) %>% select(SNP) %>% distinct() %>%
+        write.table("hwe10e-2_superpops_195ksnps", row.names = F, quote = F)
+        '
+
+    """
+}
+
 def nfcoreHeader() {
     // Log colors ANSI codes
     c_black = params.monochrome_logs ? '' : "\033[0;30m";
