@@ -24,6 +24,7 @@ RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/tidyr
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/BH/BH_1.72.0-2.tar.gz', repos=NULL, type='source')"
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/dplyr/dplyr_0.8.5.tar.gz', repos=NULL, type='source')"
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/data.table/data.table_1.12.8.tar.gz', repos=NULL, type='source')"
+RUN R -e "install.packages('https://cran.r-project.org/src/contrib/magrittr_1.5.tar.gz', repos=NULL, type='source')"
 
 
 
