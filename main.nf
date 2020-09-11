@@ -368,7 +368,7 @@ process merge_autosomes {
     file chr_ld_pruned_bed from ch_ld_bed.collect()
 
     output:
-    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") into ch_merge_autosomes
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") into (ch_merge_autosomes , ch_merge_autosomes2, ch_merge_autosomes3)
 
     script:
     """
@@ -445,6 +445,56 @@ process hwe_pruning_30k_data {
         write.table("hwe10e-2_superpops_195ksnps", row.names = F, quote = F)
         '
 
+    """
+}
+
+process get_king_coeffs {
+    publishDir "${params.outdir}/get_king_coeffs/", mode: params.publish_dir_mode
+    container = "lifebitai/plink2"
+    input:
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") from ch_merge_autosomes2
+
+    output:
+    file "matrix-autosomes_LD_pruned_1kgp3Intersect*" into ch_get_king_coeffs
+
+    script:
+
+    """
+    plink2 --bfile \
+    autosomes_LD_pruned_1kgp3Intersect \
+    --make-king square \
+    --out \
+    matrix-autosomes_LD_pruned_1kgp3Intersect \
+    --thread-num 30
+    """
+}
+
+/* STEP_27
+ * STEP - get_king_coeffs_alt
+ * Daniel's notes:
+ * The main difference for this is that we are aiming to do all the pcAIR
+ * using other tools. Therefore the output needs to be different
+ */
+
+process get_king_coeffs_alt {
+    publishDir "${params.outdir}/get_king_coeffs_alt/", mode: params.publish_dir_mode
+    container = "lifebitai/plink2"
+    input:
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") from ch_merge_autosomes3
+
+
+    output:
+    file "matrix-autosomes_LD_pruned_1kgp3Intersect_triangle*" into ch_get_king_coeffs_alt
+
+    script:
+
+    """
+    plink2 --bfile \
+    autosomes_LD_pruned_1kgp3Intersect \
+    --make-king triangle bin \
+    --out \
+    matrix-autosomes_LD_pruned_1kgp3Intersect_triangle \
+    --thread-num 30
     """
 }
 
