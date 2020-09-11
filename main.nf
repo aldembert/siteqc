@@ -368,7 +368,7 @@ process merge_autosomes {
     file chr_ld_pruned_bed from ch_ld_bed.collect()
 
     output:
-    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") into (ch_merge_autosomes , ch_merge_autosomes2, ch_merge_autosomes3)
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") into (ch_merge_autosomes , ch_merge_autosomes2, ch_merge_autosomes3, ch_merge_autosomes4)
 
     script:
     """
@@ -398,8 +398,9 @@ process hwe_pruning_30k_data {
     file (ancestry_assignment_probs) from ch_inputAncestryAssignmentProbs
     file (pc_sancestry_related) from ch_inputPCsancestryrelated
     output:
-    file "*_superpops_195ksnps" into ch_hwe_pruning_30k_data
-    //file "*.txt" into ch_hwe_pruning_30k_data
+    
+    set file("hwe10e-2_superpops_195ksnps"), file("hwe10e-6_superpops_195ksnps") into ch_hwe_pruning_30k_data
+    
     script:
     """
     R -e 'library(data.table); 
@@ -481,10 +482,10 @@ process get_king_coeffs_alt {
     container = "lifebitai/plink2"
     input:
     set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") from ch_merge_autosomes3
-
+    set file("hwe10e-2_superpops_195ksnps"), file("hwe10e-6_superpops_195ksnps") from ch_hwe_pruning_30k_data
 
     output:
-    file "matrix-autosomes_LD_pruned_1kgp3Intersect_triangle*" into ch_get_king_coeffs_alt
+    set file("autosomes_LD_pruned_1kgp3Intersect_triangle.king.bin"),file("autosomes_LD_pruned_1kgp3Intersect_triangle.king.id"), file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.bin"),file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.id"),file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.bin"), file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.id") into ch_get_king_coeffs_alt
 
     script:
 
@@ -493,10 +494,90 @@ process get_king_coeffs_alt {
     autosomes_LD_pruned_1kgp3Intersect \
     --make-king triangle bin \
     --out \
-    matrix-autosomes_LD_pruned_1kgp3Intersect_triangle \
+    autosomes_LD_pruned_1kgp3Intersect_triangle \
     --thread-num 30
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect --extract hwe10e-2_superpops_195ksnps --make-king triangle bin --out autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect --extract hwe10e-6_superpops_195ksnps --make-king triangle bin --out autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6
     """
 }
+
+/* STEP_28
+ * STEP - pcair_alternate: 
+ * Daniel's notes:
+ * This isn't actually intended to run as a function, it is just to stop stuff running
+ * when sourcing this file that we wrap it in a function
+ * Alternate approach to producing the PC-relate info
+ */
+
+process pcair_alternate {
+    publishDir "${params.outdir}/pcair_alternate/", mode: params.publish_dir_mode
+    container = "lifebitai/plink2"
+    input:
+    set file("autosomes_LD_pruned_1kgp3Intersect.bed"), file("autosomes_LD_pruned_1kgp3Intersect.bim"), file("autosomes_LD_pruned_1kgp3Intersect.fam"),file("autosomes_LD_pruned_1kgp3Intersect.nosex") from ch_merge_autosomes4
+    set file("autosomes_LD_pruned_1kgp3Intersect_triangle.king.bin"),file("autosomes_LD_pruned_1kgp3Intersect_triangle.king.id"), file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.bin"),file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.id"),file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.bin"), file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.id") from ch_get_king_coeffs_alt
+
+    output:
+    set file("autosomes_LD_pruned_1kgp3Intersect_unrelated*"), file("autosomes_LD_pruned_1kgp3Intersect_related*") into ch_pcair_alternate
+    set file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.cutoff.in.id"), file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.cutoff.in.id"),file("autosomes_LD_pruned_1kgp3Intersect.king.cutoff.in.id") into ch_pcair_alternate_cutoffs
+    script:
+
+    """
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect \
+    --king-cutoff autosomes_LD_pruned_1kgp3Intersect_triangle 0.0442 && \
+    mv plink2.king.cutoff.in.id autosomes_LD_pruned_1kgp3Intersect.king.cutoff.in.id && \
+    mv plink2.king.cutoff.out.id autosomes_LD_pruned_1kgp3Intersect.king.cutoff.out.id
+
+
+
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect \
+    --king-cutoff autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2 0.0442 && \
+    mv plink2.king.cutoff.in.id  autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.cutoff.in.id && \
+    mv plink2.king.cutoff.out.id  autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.cutoff.out.id
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect \
+    --king-cutoff autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6 0.0442 && \
+    cp plink2.king.cutoff.in.id  autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.cutoff.in.id && \
+    cp plink2.king.cutoff.out.id  autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.cutoff.out.id
+
+
+
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect \
+    --make-bed \
+    --keep plink2.king.cutoff.in.id \
+    --out autosomes_LD_pruned_1kgp3Intersect_unrelated
+
+
+    plink2 --bfile autosomes_LD_pruned_1kgp3Intersect \
+    --make-bed \
+    --remove plink2.king.cutoff.in.id \
+    --out autosomes_LD_pruned_1kgp3Intersect_related
+    """
+ }
+
+ /* STEP_28-a
+ * STEP - pcair_alternate-Rscript-complement: 
+ */
+process pcair_alternate_Rscript {
+    publishDir "${params.outdir}/pcair_alternate_Rscript/", mode: params.publish_dir_mode
+    echo true
+    input:
+    set file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.cutoff.in.id"), file("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.cutoff.in.id"),file("autosomes_LD_pruned_1kgp3Intersect.king.cutoff.in.id") from ch_pcair_alternate_cutoffs
+    
+    output:
+
+    script:
+    """
+        R -e 'library(data.table); library(dplyr); 
+        dat <- fread("autosomes_LD_pruned_1kgp3Intersect.king.cutoff.in.id") %>% as_tibble();
+        hwe2 <- fread("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_2.king.cutoff.in.id") %>% as_tibble();
+        hwe6 <- fread("autosomes_LD_pruned_1kgp3Intersect_triangle_HWE10_6.king.cutoff.in.id") %>% as_tibble();
+        dat <- bind_rows(dat, hwe2, hwe6, .id="id");
+        dat %>% group_by(id) %>% summarise(n()); 
+        dat %>% group_by(IID) %>% summarise(n=n()) %>% count(n)'
+
+    """
+}
+ 
+
 
 def nfcoreHeader() {
     // Log colors ANSI codes
